@@ -44,21 +44,21 @@ def display_race_menu(year):
     # Display races
     print("\nSelect a race to view details:\n")
     for i, race in enumerate(races, 1):
-        print(f"{i:2d}. Round {race['round']:2d} - {race['event_name']} ({race['country']}) - {race['date']}")
+        format_badge = f" [{race.get('format', 'conventional').upper()}]" if race.get('format') != 'conventional' else ""
+        print(f"{i:2d}. Round {race['round']:2d} - {race['event_name']} ({race['country']}){format_badge} - {race['date']}")
     
-    print(f"\n{len(races) + 1}. Exit")
+    print(f"\n0. Back to year selection")
     
     # Get user input
     while True:
         try:
-            choice = int(input(f"\nEnter your choice (1-{len(races) + 1}): "))
+            choice = int(input(f"\nEnter your choice (0-{len(races)}): "))
             if 1 <= choice <= len(races):
                 return races[choice - 1]
-            elif choice == len(races) + 1:
-                print("\nGoodbye!")
+            elif choice == 0:
                 return None
             else:
-                print(f"Invalid choice. Please enter a number between 1 and {len(races) + 1}.")
+                print(f"Invalid choice. Please enter a number between 0 and {len(races)}.")
         except ValueError:
             print("Invalid input. Please enter a number.")
         except KeyboardInterrupt:
