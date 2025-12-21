@@ -22,9 +22,10 @@ class Car:
         self.driver_name = driver_name
         self.team_color = team_color
         self.position = position
-        self.lap_data = []
+        self.lap_data = []  # List of lap times
+        self.position_data = []  # List of (x, y) coordinates for each lap
         self.current_lap = 0
-        self.progress = 0  # 0 to 1 representing position on current lap
+        self.lap_start_time = 0  # When current lap started
         self.x = TRACK_X
         self.y = TRACK_Y + position * 30
         
@@ -33,22 +34,41 @@ class Car:
         if self.current_lap >= len(self.lap_data):
             return
         
+        # Get current lap time
         lap_time = self.lap_data[self.current_lap]
-        self.progress = time_elapsed / lap_time.total_seconds()
+        time_in_lap = time_elapsed - self.lap_start_time
         
-        if self.progress >= 1.0:
-            self.progress = 0
+        # Check if we need to advance to next lap
+        if time_in_lap >= lap_time.total_seconds():
             self.current_lap += 1
+            self.lap_start_time = time_elapsed
             
-        # Move car around the track (simplified oval)
-        angle = self.progress * 2 * math.pi
-        center_x = TRACK_X + TRACK_WIDTH / 2
-        center_y = TRACK_Y + TRACK_HEIGHT / 2
-        radius_x = TRACK_WIDTH / 2 - 50
-        radius_y = TRACK_HEIGHT / 2 - 50
+            if self.current_lap >= len(self.lap_data):
+                return
+            
+            lap_time = self.lap_data[self.current_lap]
+            time_in_lap = 0
         
-        self.x = center_x + radius_x * math.cos(angle)
-        self.y = center_y + radius_y * math.sin(angle)
+        # Calculate progress through current lap (0 to 1)
+        progress = time_in_lap / lap_time.total_seconds() if lap_time.total_seconds() > 0 else 0
+        
+        # Get position data for current lap
+        if self.current_lap < len(self.position_data) and len(self.position_data[self.current_lap]) > 0:
+            positions = self.position_data[self.current_lap]
+            # Interpolate position based on progress
+            idx = int(progress * (len(positions) - 1))
+            idx = min(idx, len(positions) - 1)
+            self.x, self.y = positions[idx]
+        else:
+            # Fallback to oval if no position data
+            angle = progress * 2 * math.pi
+            center_x = TRACK_X + TRACK_WIDTH / 2
+            center_y = TRACK_Y + TRACK_HEIGHT / 2
+            radius_x = TRACK_WIDTH / 2 - 50
+            radius_y = TRACK_HEIGHT / 2 - 50
+            
+            self.x = center_x + radius_x * math.cos(angle)
+            self.y = center_y + radius_y * math.sin(angle)
 
 
 class RaceAnimation(arcade.Window):
@@ -63,6 +83,7 @@ class RaceAnimation(arcade.Window):
         self.time_elapsed = 0
         self.is_paused = False
         self.speed_multiplier = 100  # Speed up animation
+        self.track_map = []  # Store track coordinates
         
         # Team colors (simplified)
         self.team_colors = {
@@ -86,62 +107,178 @@ class RaceAnimation(arcade.Window):
             print("No race data available for animation")
             return
         
-        # Create cars for top drivers
-        results = self.race_data['results']
-        num_laps = self.race_data.get('race_data', {}).get('total_laps', 50)
-        if not num_laps or num_laps == 0:
-            num_laps = 50
-        
-        for idx, result in enumerate(results[:10]):
-            team = result.get('team', 'Unknown')
-            color = self.team_colors.get(team, arcade.color.WHITE)
+        # Load race session to get position data
+        try:
+            year = self.race_data.get('year')
+            round_num = self.race_data.get('round')
             
-            car = Car(
-                driver_name=result['driver'],
-                team_color=color,
-                position=idx
-            )
+            if year and round_num:
+                print(f"Loading position data for {year} Round {round_num}...")
+                session = f1.get_session(year, round_num, 'R')
+                session.load(telemetry=True, laps=True, weather=False)
+                
+                # Get track position data for map
+                try:
+                    # Get position data from any driver's lap
+                    first_driver = session.laps.pick_driver(session.results['Abbreviation'].iloc[0])
+                    if first_driver is not None and len(first_driver) > 0:
+                        sample_lap = first_driver.pick_fastest()
+                        if sample_lap is not None:
+                            telemetry = sample_lap.get_telemetry()
+                            if telemetry is not None and 'X' in telemetry and 'Y' in telemetry:
+                                # Scale track coordinates to fit screen
+                                x_coords = telemetry['X'].values
+                                y_coords = telemetry['Y'].values
+                                
+                                # Scale to fit track area
+                                x_min, x_max = x_coords.min(), x_coords.max()
+                                y_min, y_max = y_coords.min(), y_coords.max()
+                                
+                                x_range = x_max - x_min
+                                y_range = y_max - y_min
+                                
+                                scale = min(TRACK_WIDTH / x_range, TRACK_HEIGHT / y_range) * 0.9
+                                
+                                for i in range(len(x_coords)):
+                                    x = TRACK_X + TRACK_WIDTH / 2 + (x_coords[i] - x_min - x_range / 2) * scale
+                                    y = TRACK_Y + TRACK_HEIGHT / 2 + (y_coords[i] - y_min - y_range / 2) * scale
+                                    self.track_map.append((x, y))
+                                
+                                print(f"✓ Track map loaded: {len(self.track_map)} points")
+                except Exception as e:
+                    print(f"⚠ Could not load track map: {e}")
+                    self.track_map = []
+                
+                # Create cars with actual lap data
+                results = self.race_data['results']
+                for idx, result in enumerate(results):
+                    team = result.get('team', 'Unknown')
+                    color = self.team_colors.get(team, arcade.color.WHITE)
+                    
+                    car = Car(
+                        driver_name=result['driver'],
+                        team_color=color,
+                        position=idx
+                    )
+                    
+                    # Get driver's laps
+                    driver_abbr = result['driver']
+                    driver_laps = session.laps.pick_driver(driver_abbr)
+                    
+                    if driver_laps is not None and len(driver_laps) > 0:
+                        for lap_num in range(len(driver_laps)):
+                            lap = driver_laps.iloc[lap_num]
+                            lap_time = lap['LapTime']
+                            
+                            if lap_time is not None:
+                                car.lap_data.append(lap_time)
+                                
+                                # Get position data for this lap
+                                try:
+                                    telemetry = lap.get_telemetry()
+                                    if telemetry is not None and 'X' in telemetry and 'Y' in telemetry:
+                                        lap_positions = []
+                                        x_coords = telemetry['X'].values
+                                        y_coords = telemetry['Y'].values
+                                        
+                                        x_min, x_max = x_coords.min(), x_coords.max()
+                                        y_min, y_max = y_coords.min(), y_coords.max()
+                                        x_range = x_max - x_min if x_max - x_min > 0 else 1
+                                        y_range = y_max - y_min if y_max - y_min > 0 else 1
+                                        scale = min(TRACK_WIDTH / x_range, TRACK_HEIGHT / y_range) * 0.9
+                                        
+                                        for i in range(len(x_coords)):
+                                            x = TRACK_X + TRACK_WIDTH / 2 + (x_coords[i] - x_min - x_range / 2) * scale
+                                            y = TRACK_Y + TRACK_HEIGHT / 2 + (y_coords[i] - y_min - y_range / 2) * scale
+                                            lap_positions.append((x, y))
+                                        
+                                        car.position_data.append(lap_positions)
+                                    else:
+                                        car.position_data.append([])
+                                except:
+                                    car.position_data.append([])
+                            else:
+                                # Fallback lap time if missing
+                                base_time = 85 + idx * 1.5
+                                car.lap_data.append(timedelta(seconds=base_time))
+                                car.position_data.append([])
+                        
+                        print(f"✓ Loaded {len(car.lap_data)} laps for {driver_abbr}")
+                    else:
+                        # Fallback: generate estimated lap times
+                        num_laps = self.race_data.get('race_data', {}).get('total_laps', 50)
+                        base_time = 85 + idx * 1.5
+                        for lap in range(int(num_laps)):
+                            variation = (lap % 5) * 0.5 - 1
+                            lap_time = timedelta(seconds=base_time + variation)
+                            car.lap_data.append(lap_time)
+                            car.position_data.append([])
+                    
+                    self.cars.append(car)
+                
+        except Exception as e:
+            print(f"⚠ Error loading session data: {e}")
+            print("Using fallback data...")
+            # Fallback to original simple implementation
+            results = self.race_data['results']
+            num_laps = self.race_data.get('race_data', {}).get('total_laps', 50)
+            if not num_laps or num_laps == 0:
+                num_laps = 50
             
-            # Generate realistic lap times based on position
-            # Faster cars (lower position) have faster lap times
-            base_time = 85 + idx * 1.5  # Base lap time in seconds
-            for lap in range(int(num_laps)):
-                # Add some variation to lap times
-                variation = (lap % 5) * 0.5 - 1
-                lap_time = timedelta(seconds=base_time + variation)
-                car.lap_data.append(lap_time)
-            
-            self.cars.append(car)
+            for idx, result in enumerate(results):
+                team = result.get('team', 'Unknown')
+                color = self.team_colors.get(team, arcade.color.WHITE)
+                
+                car = Car(
+                    driver_name=result['driver'],
+                    team_color=color,
+                    position=idx
+                )
+                
+                base_time = 85 + idx * 1.5
+                for lap in range(int(num_laps)):
+                    variation = (lap % 5) * 0.5 - 1
+                    lap_time = timedelta(seconds=base_time + variation)
+                    car.lap_data.append(lap_time)
+                    car.position_data.append([])
+                
+                self.cars.append(car)
     
     def on_draw(self):
         """Render the screen."""
         self.clear()
         
-        # Draw track (outer boundary) using lines
-        track_center_x = TRACK_X + TRACK_WIDTH / 2
-        track_center_y = TRACK_Y + TRACK_HEIGHT / 2
-        
-        # Draw outer track oval
-        points = []
-        for i in range(100):
-            angle = (i / 100) * 2 * math.pi
-            x = track_center_x + (TRACK_WIDTH / 2) * math.cos(angle)
-            y = track_center_y + (TRACK_HEIGHT / 2) * math.sin(angle)
-            points.append((x, y))
-        points.append(points[0])  # Close the loop
-        
-        arcade.draw_line_strip(points, arcade.color.WHITE, 5)
-        
-        # Draw inner track line
-        inner_points = []
-        for i in range(100):
-            angle = (i / 100) * 2 * math.pi
-            x = track_center_x + (TRACK_WIDTH / 2 - 50) * math.cos(angle)
-            y = track_center_y + (TRACK_HEIGHT / 2 - 50) * math.sin(angle)
-            inner_points.append((x, y))
-        inner_points.append(inner_points[0])
-        
-        arcade.draw_line_strip(inner_points, arcade.color.DARK_GRAY, 3)
+        # Draw track using actual map data or fallback to oval
+        if len(self.track_map) > 0:
+            # Draw actual track
+            track_points = self.track_map + [self.track_map[0]]  # Close the loop
+            arcade.draw_line_strip(track_points, arcade.color.WHITE, 5)
+        else:
+            # Fallback to oval
+            track_center_x = TRACK_X + TRACK_WIDTH / 2
+            track_center_y = TRACK_Y + TRACK_HEIGHT / 2
+            
+            # Draw outer track oval
+            points = []
+            for i in range(100):
+                angle = (i / 100) * 2 * math.pi
+                x = track_center_x + (TRACK_WIDTH / 2) * math.cos(angle)
+                y = track_center_y + (TRACK_HEIGHT / 2) * math.sin(angle)
+                points.append((x, y))
+            points.append(points[0])  # Close the loop
+            
+            arcade.draw_line_strip(points, arcade.color.WHITE, 5)
+            
+            # Draw inner track line
+            inner_points = []
+            for i in range(100):
+                angle = (i / 100) * 2 * math.pi
+                x = track_center_x + (TRACK_WIDTH / 2 - 50) * math.cos(angle)
+                y = track_center_y + (TRACK_HEIGHT / 2 - 50) * math.sin(angle)
+                inner_points.append((x, y))
+            inner_points.append(inner_points[0])
+            
+            arcade.draw_line_strip(inner_points, arcade.color.DARK_GRAY, 3)
         
         # Draw cars
         for car in self.cars:
@@ -188,7 +325,7 @@ class RaceAnimation(arcade.Window):
         )
         
         arcade.draw_text(
-            "SPACE: Pause/Resume | ESC: Exit",
+            "SPACE: Pause/Resume | R: Restart | ESC: Exit",
             10, 10,
             arcade.color.GRAY,
             10
@@ -205,10 +342,19 @@ class RaceAnimation(arcade.Window):
             bold=True
         )
         
-        sorted_cars = sorted(self.cars, key=lambda c: (c.current_lap, c.progress), reverse=True)
+        # Sort cars by lap and progress through current lap
+        def get_car_position(car):
+            if car.current_lap >= len(car.lap_data):
+                return (car.current_lap, 1.0)
+            lap_time = car.lap_data[car.current_lap]
+            time_in_lap = self.time_elapsed - car.lap_start_time
+            progress = time_in_lap / lap_time.total_seconds() if lap_time.total_seconds() > 0 else 0
+            return (car.current_lap, progress)
+        
+        sorted_cars = sorted(self.cars, key=get_car_position, reverse=True)
         for idx, car in enumerate(sorted_cars):
             arcade.draw_text(
-                f"{idx + 1}. {car.driver_name} - Lap {car.current_lap}",
+                f"{idx + 1}. {car.driver_name} - Lap {car.current_lap + 1}",
                 list_x, list_y - 25 - (idx * 20),
                 car.team_color,
                 10
@@ -225,15 +371,25 @@ class RaceAnimation(arcade.Window):
         # Update all cars
         for car in self.cars:
             car.update_position(self.time_elapsed)
+    
+    def restart_race(self):
+        """Restart the race animation from the beginning."""
+        self.time_elapsed = 0
+        self.is_paused = False
         
-        # Reset timer for each lap
-        if self.cars and self.cars[0].progress < 0.01 and self.time_elapsed > 1:
-            self.time_elapsed = 0
+        # Reset all cars
+        for car in self.cars:
+            car.current_lap = 0
+            car.lap_start_time = 0
+            car.x = TRACK_X
+            car.y = TRACK_Y + car.position * 30
     
     def on_key_press(self, key, modifiers):
         """Handle key presses."""
         if key == arcade.key.SPACE:
             self.is_paused = not self.is_paused
+        elif key == arcade.key.R:
+            self.restart_race()
         elif key == arcade.key.ESCAPE:
             arcade.close_window()
         elif key == arcade.key.UP:
@@ -266,12 +422,17 @@ def animate_race(year, race_round):
         print("❌ No race results available for animation. Race may not have been completed yet.")
         return
     
+    # Add year and round to race_data for session loading
+    race_data['year'] = year
+    race_data['round'] = race_round
+    
     print("✅ Race data loaded successfully!")
     print(f"🏁 {race_data['event_info']['event_name']}")
     print(f"   {len(race_data['results'])} drivers")
     print("\n🎮 Starting race animation...")
     print("\nControls:")
     print("  SPACE       - Pause/Resume")
+    print("  R           - Restart race")
     print("  UP/DOWN     - Adjust speed (10x-1000x)")
     print("  ESC         - Exit")
     print("\n👀 Check for the animation window - it may open behind other windows!")

@@ -40,7 +40,7 @@ def get_race_details(year, race_round):
         
         # Get event by round number or name
         if isinstance(race_round, int):
-            event = schedule.iloc[race_round - 1]
+            event = schedule[schedule['RoundNumber'] == race_round].iloc[0]
         else:
             event = schedule[schedule['EventName'].str.contains(race_round, case=False)].iloc[0]
         
@@ -137,14 +137,15 @@ def get_current_season_races(year=None):
         races = []
         
         for idx, event in schedule.iterrows():
-            if event['EventFormat'] == 'conventional':
-                races.append({
-                    'round': event['RoundNumber'],
-                    'event_name': event['EventName'],
-                    'location': event['Location'],
-                    'country': event['Country'],
-                    'date': str(event['EventDate'])
-                })
+            # Include all events
+            races.append({
+                'round': event['RoundNumber'],
+                'event_name': event['EventName'],
+                'location': event['Location'],
+                'country': event['Country'],
+                'date': str(event['EventDate']),
+                'format': event['EventFormat']
+            })
         
         return races
     except Exception as e:
