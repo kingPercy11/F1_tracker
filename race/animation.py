@@ -4,7 +4,6 @@ from datetime import timedelta
 from pathlib import Path
 import math
 
-# Constants
 SCREEN_WIDTH = 1200
 SCREEN_HEIGHT = 800
 SCREEN_TITLE = "F1 Race Animation"
@@ -17,29 +16,27 @@ CAR_HEIGHT = 15
 
 
 class Car:
-    """Represents a racing car in the animation."""
+    """Racing car in animation"""
     
     def __init__(self, driver_name, team_color, position):
         self.driver_name = driver_name
         self.team_color = team_color
         self.position = position
-        self.lap_data = []  # List of lap times
-        self.position_data = []  # List of (x, y) coordinates for each lap
+        self.lap_data = []
+        self.position_data = []
         self.current_lap = 0
-        self.lap_start_time = 0  # When current lap started
+        self.lap_start_time = 0
         self.x = TRACK_X
         self.y = TRACK_Y + position * 30
         
     def update_position(self, time_elapsed):
-        """Update car position based on elapsed time."""
+        """Update car position"""
         if self.current_lap >= len(self.lap_data):
             return
         
-        # Get current lap time
         lap_time = self.lap_data[self.current_lap]
         time_in_lap = time_elapsed - self.lap_start_time
         
-        # Check if we need to advance to next lap
         if time_in_lap >= lap_time.total_seconds():
             self.current_lap += 1
             self.lap_start_time = time_elapsed
@@ -50,18 +47,14 @@ class Car:
             lap_time = self.lap_data[self.current_lap]
             time_in_lap = 0
         
-        # Calculate progress through current lap (0 to 1)
         progress = time_in_lap / lap_time.total_seconds() if lap_time.total_seconds() > 0 else 0
         
-        # Get position data for current lap
         if self.current_lap < len(self.position_data) and len(self.position_data[self.current_lap]) > 0:
             positions = self.position_data[self.current_lap]
-            # Interpolate position based on progress
             idx = int(progress * (len(positions) - 1))
             idx = min(idx, len(positions) - 1)
             self.x, self.y = positions[idx]
         else:
-            # Fallback to oval if no position data
             angle = progress * 2 * math.pi
             center_x = TRACK_X + TRACK_WIDTH / 2
             center_y = TRACK_Y + TRACK_HEIGHT / 2
@@ -73,7 +66,7 @@ class Car:
 
 
 class RaceAnimation(arcade.Window):
-    """Main application class for race animation."""
+    """Main race animation window"""
     
     def __init__(self, race_data):
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
@@ -83,13 +76,12 @@ class RaceAnimation(arcade.Window):
         self.cars = []
         self.time_elapsed = 0
         self.is_paused = False
-        self.speed_multiplier = 10  # Speed up animation
-        self.track_map = []  # Store track coordinates
-        self.zoom_level = 1.0  # Zoom level (1.0 = normal, >1 = zoomed in, <1 = zoomed out)
-        self.camera_x = 0  # Camera offset X
-        self.camera_y = 0  # Camera offset Y
+        self.speed_multiplier = 1
+        self.track_map = []
+        self.zoom_level = 1.0
+        self.camera_x = 0
+        self.camera_y = 0
         
-        # Team colors (simplified)
         self.team_colors = {
             'Red Bull Racing': arcade.color.BLUE,
             'Mercedes': arcade.color.CYAN,
@@ -106,18 +98,16 @@ class RaceAnimation(arcade.Window):
         self.setup_race()
     
     def setup_race(self):
-        """Initialize race cars with their lap data."""
+        """Initialize race cars data"""
         if not self.race_data or 'results' not in self.race_data or not self.race_data['results']:
             print("No race data available for animation")
             return
         
-        # Load race session to get position data
         try:
             year = self.race_data.get('year')
             round_num = self.race_data.get('round')
             
             if year and round_num:
-                # Check if data is available in cache
                 cache_dir = Path(__file__).parent.parent / 'cache' / str(year)
                 if cache_dir.exists():
                     print(f"✓ Found cache directory for {year}")
@@ -125,7 +115,6 @@ class RaceAnimation(arcade.Window):
                 print(f"Loading position data for {year} Round {round_num}...")
                 session = f1.get_session(year, round_num, 'R')
                 
-                # Load with cache-first approach
                 try:
                     session.load(telemetry=True, laps=True, weather=False)
                     print(f"✓ Session data loaded successfully")
@@ -133,20 +122,16 @@ class RaceAnimation(arcade.Window):
                     print(f"⚠ Could not load session data: {load_error}")
                     raise
                 
-                # Get track position data for map
                 try:
-                    # Get position data from any driver's lap
                     first_driver = session.laps.pick_driver(session.results['Abbreviation'].iloc[0])
                     if first_driver is not None and len(first_driver) > 0:
                         sample_lap = first_driver.pick_fastest()
                         if sample_lap is not None:
                             telemetry = sample_lap.get_telemetry()
                             if telemetry is not None and 'X' in telemetry and 'Y' in telemetry:
-                                # Scale track coordinates to fit screen
                                 x_coords = telemetry['X'].values
                                 y_coords = telemetry['Y'].values
                                 
-                                # Scale to fit track area
                                 x_min, x_max = x_coords.min(), x_coords.max()
                                 y_min, y_max = y_coords.min(), y_coords.max()
                                 
@@ -165,7 +150,6 @@ class RaceAnimation(arcade.Window):
                     print(f"⚠ Could not load track map: {e}")
                     self.track_map = []
                 
-                # Create cars with actual lap data
                 results = self.race_data['results']
                 for idx, result in enumerate(results):
                     team = result.get('team', 'Unknown')
@@ -177,7 +161,6 @@ class RaceAnimation(arcade.Window):
                         position=idx
                     )
                     
-                    # Get driver's laps
                     driver_abbr = result['driver']
                     driver_laps = session.laps.pick_driver(driver_abbr)
                     
@@ -189,7 +172,6 @@ class RaceAnimation(arcade.Window):
                             if lap_time is not None:
                                 car.lap_data.append(lap_time)
                                 
-                                # Get position data for this lap
                                 try:
                                     telemetry = lap.get_telemetry()
                                     if telemetry is not None and 'X' in telemetry and 'Y' in telemetry:
@@ -214,14 +196,12 @@ class RaceAnimation(arcade.Window):
                                 except:
                                     car.position_data.append([])
                             else:
-                                # Fallback lap time if missing
                                 base_time = 85 + idx * 1.5
                                 car.lap_data.append(timedelta(seconds=base_time))
                                 car.position_data.append([])
                         
                         print(f"✓ Loaded {len(car.lap_data)} laps for {driver_abbr}")
                     else:
-                        # Fallback: generate estimated lap times
                         num_laps = self.race_data.get('race_data', {}).get('total_laps', 50)
                         base_time = 85 + idx * 1.5
                         for lap in range(int(num_laps)):
@@ -235,7 +215,6 @@ class RaceAnimation(arcade.Window):
         except Exception as e:
             print(f"⚠ Error loading session data: {e}")
             print("Using fallback data...")
-            # Fallback to original simple implementation
             results = self.race_data['results']
             num_laps = self.race_data.get('race_data', {}).get('total_laps', 50)
             if not num_laps or num_laps == 0:
@@ -261,50 +240,41 @@ class RaceAnimation(arcade.Window):
                 self.cars.append(car)
     
     def on_draw(self):
-        """Render the screen."""
+        """Render screen"""
         self.clear()
         
-        # Apply zoom transformation by scaling around center
         center_x = SCREEN_WIDTH / 2
         center_y = SCREEN_HEIGHT / 2
         
-        # Draw track using actual map data or fallback to oval
         if len(self.track_map) > 0:
-            # Draw actual track with zoom
             scaled_points = []
             for x, y in self.track_map:
-                # Scale around center
                 scaled_x = center_x + (x - center_x) * self.zoom_level
                 scaled_y = center_y + (y - center_y) * self.zoom_level
                 scaled_points.append((scaled_x, scaled_y))
-            scaled_points.append(scaled_points[0])  # Close the loop
+            scaled_points.append(scaled_points[0])
             arcade.draw_line_strip(scaled_points, arcade.color.WHITE, 5)
         else:
-            # Fallback to oval with zoom
             track_center_x = TRACK_X + TRACK_WIDTH / 2
             track_center_y = TRACK_Y + TRACK_HEIGHT / 2
             
-            # Draw outer track oval
             points = []
             for i in range(100):
                 angle = (i / 100) * 2 * math.pi
                 x = track_center_x + (TRACK_WIDTH / 2) * math.cos(angle)
                 y = track_center_y + (TRACK_HEIGHT / 2) * math.sin(angle)
-                # Apply zoom
                 scaled_x = center_x + (x - center_x) * self.zoom_level
                 scaled_y = center_y + (y - center_y) * self.zoom_level
                 points.append((scaled_x, scaled_y))
-            points.append(points[0])  # Close the loop
+            points.append(points[0])
             
             arcade.draw_line_strip(points, arcade.color.WHITE, 5)
             
-            # Draw inner track line
             inner_points = []
             for i in range(100):
                 angle = (i / 100) * 2 * math.pi
                 x = track_center_x + (TRACK_WIDTH / 2 - 50) * math.cos(angle)
                 y = track_center_y + (TRACK_HEIGHT / 2 - 50) * math.sin(angle)
-                # Apply zoom
                 scaled_x = center_x + (x - center_x) * self.zoom_level
                 scaled_y = center_y + (y - center_y) * self.zoom_level
                 inner_points.append((scaled_x, scaled_y))
@@ -312,21 +282,17 @@ class RaceAnimation(arcade.Window):
             
             arcade.draw_line_strip(inner_points, arcade.color.DARK_GRAY, 3)
         
-        # Draw cars
         for car in self.cars:
-            # Apply zoom to car position
             scaled_x = center_x + (car.x - center_x) * self.zoom_level
             scaled_y = center_y + (car.y - center_y) * self.zoom_level
             car_size = 15 * self.zoom_level
             
-            # Draw car as a circle
             arcade.draw_circle_filled(
                 scaled_x, scaled_y,
                 car_size,
                 car.team_color
             )
             
-            # Draw driver abbreviation
             text_size = max(8, int(10 * self.zoom_level))
             arcade.draw_text(
                 car.driver_name,
@@ -336,7 +302,6 @@ class RaceAnimation(arcade.Window):
                 bold=True
             )
         
-        # Draw race info
         arcade.draw_text(
             f"Race: {self.race_data.get('event_info', {}).get('event_name', 'Unknown')}",
             10, SCREEN_HEIGHT - 30,
@@ -345,7 +310,6 @@ class RaceAnimation(arcade.Window):
             bold=True
         )
         
-        # Draw lap info
         if self.cars:
             arcade.draw_text(
                 f"Lap: {self.cars[0].current_lap + 1}",
@@ -354,7 +318,6 @@ class RaceAnimation(arcade.Window):
                 14
             )
         
-        # Draw speed control
         arcade.draw_text(
             f"Speed: {self.speed_multiplier}x (Arrow Up/Down to adjust)",
             10, 30,
@@ -369,7 +332,6 @@ class RaceAnimation(arcade.Window):
             10
         )
         
-        # Draw position list
         list_x = SCREEN_WIDTH - 200
         list_y = SCREEN_HEIGHT - 50
         arcade.draw_text(
@@ -380,7 +342,6 @@ class RaceAnimation(arcade.Window):
             bold=True
         )
         
-        # Sort cars by lap and progress through current lap
         def get_car_position(car):
             if car.current_lap >= len(car.lap_data):
                 return (car.current_lap, 1.0)
@@ -398,7 +359,6 @@ class RaceAnimation(arcade.Window):
                 10
             )
         
-        # Draw zoom level info
         arcade.draw_text(
             f"Zoom: {self.zoom_level:.1f}x (+/- or Mouse Wheel)",
             10, 50,
@@ -407,23 +367,20 @@ class RaceAnimation(arcade.Window):
         )
     
     def on_update(self, delta_time):
-        """Update game logic."""
+        """Update game logic"""
         if self.is_paused:
             return
         
-        # Update time with speed multiplier
         self.time_elapsed += delta_time * self.speed_multiplier
         
-        # Update all cars
         for car in self.cars:
             car.update_position(self.time_elapsed)
     
     def restart_race(self):
-        """Restart the race animation from the beginning."""
+        """Restart race"""
         self.time_elapsed = 0
         self.is_paused = False
         
-        # Reset all cars
         for car in self.cars:
             car.current_lap = 0
             car.lap_start_time = 0
@@ -431,7 +388,7 @@ class RaceAnimation(arcade.Window):
             car.y = TRACK_Y + car.position * 30
     
     def on_key_press(self, key, modifiers):
-        """Handle key presses."""
+        """Handle key presses"""
         if key == arcade.key.SPACE:
             self.is_paused = not self.is_paused
         elif key == arcade.key.R:
@@ -452,7 +409,7 @@ class RaceAnimation(arcade.Window):
             self.camera_y = 0
     
     def on_mouse_scroll(self, x, y, scroll_x, scroll_y):
-        """Handle mouse wheel scrolling for zoom."""
+        """Handle mouse scroll"""
         if scroll_y > 0:
             self.zoom_level = min(5.0, self.zoom_level + 0.1)
         elif scroll_y < 0:
@@ -460,16 +417,7 @@ class RaceAnimation(arcade.Window):
 
 
 def animate_race(year, race_round):
-    """
-    Create and run an animated visualization of a race.
-    
-    Parameters:
-    -----------
-    year : int
-        The year of the race
-    race_round : int
-        The round number of the race
-    """
+    """Create and run race animation"""
     from race.detail import get_race_details
     
     print(f"\n🏎️  Loading race data for {year} Round {race_round}...")
@@ -483,7 +431,6 @@ def animate_race(year, race_round):
         print("❌ No race results available for animation. Race may not have been completed yet.")
         return
     
-    # Add year and round to race_data for session loading
     race_data['year'] = year
     race_data['round'] = race_round
     
@@ -512,5 +459,4 @@ def animate_race(year, race_round):
 
 
 if __name__ == "__main__":
-    # Test animation with 2024 season
     animate_race(2024, 1)
