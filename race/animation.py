@@ -1,6 +1,7 @@
 import arcade
 import fastf1 as f1
 from datetime import timedelta
+from pathlib import Path
 import math
 
 # Constants
@@ -82,8 +83,11 @@ class RaceAnimation(arcade.Window):
         self.cars = []
         self.time_elapsed = 0
         self.is_paused = False
-        self.speed_multiplier = 100  # Speed up animation
+        self.speed_multiplier = 10  # Speed up animation
         self.track_map = []  # Store track coordinates
+        self.zoom_level = 1.0  # Zoom level (1.0 = normal, >1 = zoomed in, <1 = zoomed out)
+        self.camera_x = 0  # Camera offset X
+        self.camera_y = 0  # Camera offset Y
         
         # Team colors (simplified)
         self.team_colors = {
@@ -113,9 +117,21 @@ class RaceAnimation(arcade.Window):
             round_num = self.race_data.get('round')
             
             if year and round_num:
+                # Check if data is available in cache
+                cache_dir = Path(__file__).parent.parent / 'cache' / str(year)
+                if cache_dir.exists():
+                    print(f"✓ Found cache directory for {year}")
+                
                 print(f"Loading position data for {year} Round {round_num}...")
                 session = f1.get_session(year, round_num, 'R')
-                session.load(telemetry=True, laps=True, weather=False)
+                
+                # Load with cache-first approach
+                try:
+                    session.load(telemetry=True, laps=True, weather=False)
+                    print(f"✓ Session data loaded successfully")
+                except Exception as load_error:
+                    print(f"⚠ Could not load session data: {load_error}")
+                    raise
                 
                 # Get track position data for map
                 try:
@@ -248,13 +264,23 @@ class RaceAnimation(arcade.Window):
         """Render the screen."""
         self.clear()
         
+        # Apply zoom transformation by scaling around center
+        center_x = SCREEN_WIDTH / 2
+        center_y = SCREEN_HEIGHT / 2
+        
         # Draw track using actual map data or fallback to oval
         if len(self.track_map) > 0:
-            # Draw actual track
-            track_points = self.track_map + [self.track_map[0]]  # Close the loop
-            arcade.draw_line_strip(track_points, arcade.color.WHITE, 5)
+            # Draw actual track with zoom
+            scaled_points = []
+            for x, y in self.track_map:
+                # Scale around center
+                scaled_x = center_x + (x - center_x) * self.zoom_level
+                scaled_y = center_y + (y - center_y) * self.zoom_level
+                scaled_points.append((scaled_x, scaled_y))
+            scaled_points.append(scaled_points[0])  # Close the loop
+            arcade.draw_line_strip(scaled_points, arcade.color.WHITE, 5)
         else:
-            # Fallback to oval
+            # Fallback to oval with zoom
             track_center_x = TRACK_X + TRACK_WIDTH / 2
             track_center_y = TRACK_Y + TRACK_HEIGHT / 2
             
@@ -264,7 +290,10 @@ class RaceAnimation(arcade.Window):
                 angle = (i / 100) * 2 * math.pi
                 x = track_center_x + (TRACK_WIDTH / 2) * math.cos(angle)
                 y = track_center_y + (TRACK_HEIGHT / 2) * math.sin(angle)
-                points.append((x, y))
+                # Apply zoom
+                scaled_x = center_x + (x - center_x) * self.zoom_level
+                scaled_y = center_y + (y - center_y) * self.zoom_level
+                points.append((scaled_x, scaled_y))
             points.append(points[0])  # Close the loop
             
             arcade.draw_line_strip(points, arcade.color.WHITE, 5)
@@ -275,26 +304,35 @@ class RaceAnimation(arcade.Window):
                 angle = (i / 100) * 2 * math.pi
                 x = track_center_x + (TRACK_WIDTH / 2 - 50) * math.cos(angle)
                 y = track_center_y + (TRACK_HEIGHT / 2 - 50) * math.sin(angle)
-                inner_points.append((x, y))
+                # Apply zoom
+                scaled_x = center_x + (x - center_x) * self.zoom_level
+                scaled_y = center_y + (y - center_y) * self.zoom_level
+                inner_points.append((scaled_x, scaled_y))
             inner_points.append(inner_points[0])
             
             arcade.draw_line_strip(inner_points, arcade.color.DARK_GRAY, 3)
         
         # Draw cars
         for car in self.cars:
-            # Draw car as a circle instead
+            # Apply zoom to car position
+            scaled_x = center_x + (car.x - center_x) * self.zoom_level
+            scaled_y = center_y + (car.y - center_y) * self.zoom_level
+            car_size = 15 * self.zoom_level
+            
+            # Draw car as a circle
             arcade.draw_circle_filled(
-                car.x, car.y,
-                15,
+                scaled_x, scaled_y,
+                car_size,
                 car.team_color
             )
             
             # Draw driver abbreviation
+            text_size = max(8, int(10 * self.zoom_level))
             arcade.draw_text(
                 car.driver_name,
-                car.x - 15, car.y - 5,
+                scaled_x - 15 * self.zoom_level, scaled_y - 5 * self.zoom_level,
                 arcade.color.WHITE,
-                10,
+                text_size,
                 bold=True
             )
         
@@ -325,7 +363,7 @@ class RaceAnimation(arcade.Window):
         )
         
         arcade.draw_text(
-            "SPACE: Pause/Resume | R: Restart | ESC: Exit",
+            "SPACE: Pause/Resume | R: Restart | +/-: Zoom | ESC: Exit",
             10, 10,
             arcade.color.GRAY,
             10
@@ -359,6 +397,14 @@ class RaceAnimation(arcade.Window):
                 car.team_color,
                 10
             )
+        
+        # Draw zoom level info
+        arcade.draw_text(
+            f"Zoom: {self.zoom_level:.1f}x (+/- or Mouse Wheel)",
+            10, 50,
+            arcade.color.WHITE,
+            12
+        )
     
     def on_update(self, delta_time):
         """Update game logic."""
@@ -396,6 +442,21 @@ class RaceAnimation(arcade.Window):
             self.speed_multiplier = min(1000, self.speed_multiplier + 10)
         elif key == arcade.key.DOWN:
             self.speed_multiplier = max(10, self.speed_multiplier - 10)
+        elif key == arcade.key.PLUS or key == arcade.key.EQUAL:
+            self.zoom_level = min(5.0, self.zoom_level + 0.2)
+        elif key == arcade.key.MINUS:
+            self.zoom_level = max(0.5, self.zoom_level - 0.2)
+        elif key == arcade.key.NUM_0 or key == arcade.key.KEY_0:
+            self.zoom_level = 1.0
+            self.camera_x = 0
+            self.camera_y = 0
+    
+    def on_mouse_scroll(self, x, y, scroll_x, scroll_y):
+        """Handle mouse wheel scrolling for zoom."""
+        if scroll_y > 0:
+            self.zoom_level = min(5.0, self.zoom_level + 0.1)
+        elif scroll_y < 0:
+            self.zoom_level = max(0.5, self.zoom_level - 0.1)
 
 
 def animate_race(year, race_round):
@@ -434,6 +495,9 @@ def animate_race(year, race_round):
     print("  SPACE       - Pause/Resume")
     print("  R           - Restart race")
     print("  UP/DOWN     - Adjust speed (10x-1000x)")
+    print("  +/-         - Zoom in/out")
+    print("  Mouse Wheel - Zoom in/out")
+    print("  0           - Reset zoom")
     print("  ESC         - Exit")
     print("\n👀 Check for the animation window - it may open behind other windows!")
     print("-" * 60)
