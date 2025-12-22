@@ -24,6 +24,7 @@ class Car:
         self.position = position
         self.lap_data = []
         self.position_data = []
+        self.tyre_compounds = []
         self.current_lap = 0
         self.lap_start_time = 0
         self.x = TRACK_X
@@ -81,6 +82,7 @@ class RaceAnimation(arcade.Window):
         self.zoom_level = 1.0
         self.camera_x = 0
         self.camera_y = 0
+        self.track_scale_params = None
         
         self.team_colors = {
             'Red Bull Racing': arcade.color.BLUE,
@@ -90,7 +92,7 @@ class RaceAnimation(arcade.Window):
             'Alpine': arcade.color.PINK,
             'Aston Martin': arcade.color.GREEN,
             'Williams': arcade.color.LIGHT_BLUE,
-            'AlphaTauri': arcade.color.NAVY_BLUE,
+            'AlphaTauri': arcade.color.DARK_GREEN,
             'Alfa Romeo': arcade.color.DARK_RED,
             'Haas F1 Team': arcade.color.WHITE,
         }
@@ -140,6 +142,13 @@ class RaceAnimation(arcade.Window):
                                 
                                 scale = min(TRACK_WIDTH / x_range, TRACK_HEIGHT / y_range) * 0.9
                                 
+                                self.track_scale_params = {
+                                    'x_min': x_min, 'x_max': x_max,
+                                    'y_min': y_min, 'y_max': y_max,
+                                    'x_range': x_range, 'y_range': y_range,
+                                    'scale': scale
+                                }
+                                
                                 for i in range(len(x_coords)):
                                     x = TRACK_X + TRACK_WIDTH / 2 + (x_coords[i] - x_min - x_range / 2) * scale
                                     y = TRACK_Y + TRACK_HEIGHT / 2 + (y_coords[i] - y_min - y_range / 2) * scale
@@ -172,22 +181,24 @@ class RaceAnimation(arcade.Window):
                             if lap_time is not None:
                                 car.lap_data.append(lap_time)
                                 
+                                compound = lap.get('Compound', None)
+                                if compound and str(compound) != 'nan':
+                                    car.tyre_compounds.append(str(compound))
+                                else:
+                                    car.tyre_compounds.append('UNKNOWN')
+                                
                                 try:
                                     telemetry = lap.get_telemetry()
-                                    if telemetry is not None and 'X' in telemetry and 'Y' in telemetry:
+                                    if telemetry is not None and 'X' in telemetry and 'Y' in telemetry and self.track_scale_params:
                                         lap_positions = []
                                         x_coords = telemetry['X'].values
                                         y_coords = telemetry['Y'].values
                                         
-                                        x_min, x_max = x_coords.min(), x_coords.max()
-                                        y_min, y_max = y_coords.min(), y_coords.max()
-                                        x_range = x_max - x_min if x_max - x_min > 0 else 1
-                                        y_range = y_max - y_min if y_max - y_min > 0 else 1
-                                        scale = min(TRACK_WIDTH / x_range, TRACK_HEIGHT / y_range) * 0.9
+                                        params = self.track_scale_params
                                         
                                         for i in range(len(x_coords)):
-                                            x = TRACK_X + TRACK_WIDTH / 2 + (x_coords[i] - x_min - x_range / 2) * scale
-                                            y = TRACK_Y + TRACK_HEIGHT / 2 + (y_coords[i] - y_min - y_range / 2) * scale
+                                            x = TRACK_X + TRACK_WIDTH / 2 + (x_coords[i] - params['x_min'] - params['x_range'] / 2) * params['scale']
+                                            y = TRACK_Y + TRACK_HEIGHT / 2 + (y_coords[i] - params['y_min'] - params['y_range'] / 2) * params['scale']
                                             lap_positions.append((x, y))
                                         
                                         car.position_data.append(lap_positions)
@@ -199,6 +210,7 @@ class RaceAnimation(arcade.Window):
                                 base_time = 85 + idx * 1.5
                                 car.lap_data.append(timedelta(seconds=base_time))
                                 car.position_data.append([])
+                                car.tyre_compounds.append('UNKNOWN')
                         
                         print(f"✓ Loaded {len(car.lap_data)} laps for {driver_abbr}")
                     else:
@@ -209,6 +221,8 @@ class RaceAnimation(arcade.Window):
                             lap_time = timedelta(seconds=base_time + variation)
                             car.lap_data.append(lap_time)
                             car.position_data.append([])
+                            car.tyre_compounds.append('UNKNOWN')
+                            car.tyre_compounds.append('UNKNOWN')
                     
                     self.cars.append(car)
                 
@@ -236,6 +250,7 @@ class RaceAnimation(arcade.Window):
                     lap_time = timedelta(seconds=base_time + variation)
                     car.lap_data.append(lap_time)
                     car.position_data.append([])
+                    car.tyre_compounds.append('UNKNOWN')
                 
                 self.cars.append(car)
     
@@ -254,6 +269,36 @@ class RaceAnimation(arcade.Window):
                 scaled_points.append((scaled_x, scaled_y))
             scaled_points.append(scaled_points[0])
             arcade.draw_line_strip(scaled_points, arcade.color.WHITE, 5)
+            
+            if len(scaled_points) > 10:
+                start_x, start_y = scaled_points[0]
+                end_x, end_y = scaled_points[5]
+                
+                dx = end_x - start_x
+                dy = end_y - start_y
+                length = math.sqrt(dx*dx + dy*dy)
+                if length > 0:
+                    perp_x = -dy / length * 30 * self.zoom_level
+                    perp_y = dx / length * 30 * self.zoom_level
+                    
+                    arcade.draw_line(
+                        start_x - perp_x, start_y - perp_y,
+                        start_x + perp_x, start_y + perp_y,
+                        arcade.color.RED, 8 * self.zoom_level
+                    )
+                    
+                    for i in range(5):
+                        offset = (i - 2) * 10 * self.zoom_level
+                        rect_width = 8 * self.zoom_level
+                        rect_height = 15 * self.zoom_level
+                        center_rect_x = start_x + perp_x * 0.3 + (perp_x / abs(perp_x) if perp_x != 0 else 1) * offset
+                        center_rect_y = start_y + perp_y * 0.3 + (perp_y / abs(perp_y) if perp_y != 0 else 1) * offset
+                        arcade.draw_lbwh_rectangle_filled(
+                            center_rect_x - rect_width / 2,
+                            center_rect_y - rect_height / 2,
+                            rect_width, rect_height,
+                            arcade.color.WHITE if i % 2 == 0 else arcade.color.BLACK
+                        )
         else:
             track_center_x = TRACK_X + TRACK_WIDTH / 2
             track_center_y = TRACK_Y + TRACK_HEIGHT / 2
@@ -352,12 +397,39 @@ class RaceAnimation(arcade.Window):
         
         sorted_cars = sorted(self.cars, key=get_car_position, reverse=True)
         for idx, car in enumerate(sorted_cars):
+            y_pos = list_y - 25 - (idx * 20)
             arcade.draw_text(
                 f"{idx + 1}. {car.driver_name} - Lap {car.current_lap + 1}",
-                list_x, list_y - 25 - (idx * 20),
+                list_x, y_pos,
                 car.team_color,
                 10
             )
+            
+            if car.current_lap < len(car.tyre_compounds):
+                compound = car.tyre_compounds[car.current_lap]
+                tyre_colors = {
+                    'SOFT': arcade.color.RED,
+                    'MEDIUM': arcade.color.YELLOW,
+                    'HARD': arcade.color.WHITE,
+                    'INTERMEDIATE': arcade.color.GREEN,
+                    'WET': arcade.color.BLUE,
+                    'UNKNOWN': arcade.color.GRAY
+                }
+                tyre_color = tyre_colors.get(compound, arcade.color.GRAY)
+                tyre_text = compound[0] if compound != 'UNKNOWN' else '?'
+                
+                arcade.draw_circle_filled(
+                    list_x + 145, y_pos + 5,
+                    6,
+                    tyre_color
+                )
+                arcade.draw_text(
+                    tyre_text,
+                    list_x + 141, y_pos + 1,
+                    arcade.color.BLACK,
+                    8,
+                    bold=True
+                )
         
         arcade.draw_text(
             f"Zoom: {self.zoom_level:.1f}x (+/- or Mouse Wheel)",
@@ -365,6 +437,35 @@ class RaceAnimation(arcade.Window):
             arcade.color.WHITE,
             12
         )
+        
+        legend_x = SCREEN_WIDTH - 200
+        legend_y = 240
+        arcade.draw_text(
+            "Team Colors",
+            legend_x, legend_y,
+            arcade.color.YELLOW,
+            12,
+            bold=True
+        )
+        
+        teams_in_race = set()
+        for car in self.cars:
+            for result in self.race_data['results']:
+                if result['driver'] == car.driver_name:
+                    teams_in_race.add(result.get('team', 'Unknown'))
+                    break
+        
+        y_offset = legend_y - 20
+        for team in sorted(teams_in_race):
+            color = self.team_colors.get(team, arcade.color.WHITE)
+            arcade.draw_circle_filled(legend_x + 10, y_offset, 5, color)
+            arcade.draw_text(
+                team[:15],
+                legend_x + 20, y_offset - 5,
+                arcade.color.WHITE,
+                9
+            )
+            y_offset -= 18
     
     def on_update(self, delta_time):
         """Update game logic"""
