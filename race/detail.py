@@ -67,6 +67,17 @@ def get_race_details(year, race_round):
             
             # Load race session
             try:
+                # Check if data is likely in cache
+                cache_dir = CACHE_DIR / str(year)
+                event_name_safe = event['EventName'].replace(' ', '_')
+                event_cache = cache_dir / f"{event['EventDate'].strftime('%Y-%m-%d')}_{event_name_safe}"
+                
+                from_cache = event_cache.exists()
+                if from_cache:
+                    print(f"✓ Using cached data for {event['EventName']}")
+                else:
+                    print(f"⚠ Downloading data for {event['EventName']}...")
+                
                 race_session = f1.get_session(year, event['RoundNumber'], 'R')
                 race_session.load()
                 
