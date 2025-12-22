@@ -108,14 +108,17 @@ class RaceAnimation(arcade.Window):
         try:
             year = self.race_data.get('year')
             round_num = self.race_data.get('round')
+            race_format = self.race_data.get('format', 'conventional')
             
             if year and round_num:
                 cache_dir = Path(__file__).parent.parent / 'cache' / str(year)
                 if cache_dir.exists():
                     print(f"✓ Found cache directory for {year}")
                 
-                print(f"Loading position data for {year} Round {round_num}...")
-                session = f1.get_session(year, round_num, 'R')
+                session_type = 'S' if 'sprint' in race_format.lower() else 'R'
+                session_name = 'Sprint' if 'sprint' in race_format.lower() else 'Race'
+                print(f"Loading position data for {year} Round {round_num} ({session_name})...")
+                session = f1.get_session(year, round_num, session_type)
                 
                 try:
                     session.load(telemetry=True, laps=True, weather=False)
@@ -178,39 +181,39 @@ class RaceAnimation(arcade.Window):
                             lap = driver_laps.iloc[lap_num]
                             lap_time = lap['LapTime']
                             
-                            if lap_time is not None:
-                                car.lap_data.append(lap_time)
-                                
-                                compound = lap.get('Compound', None)
-                                if compound and str(compound) != 'nan':
-                                    car.tyre_compounds.append(str(compound))
-                                else:
-                                    car.tyre_compounds.append('UNKNOWN')
-                                
-                                try:
-                                    telemetry = lap.get_telemetry()
-                                    if telemetry is not None and 'X' in telemetry and 'Y' in telemetry and self.track_scale_params:
-                                        lap_positions = []
-                                        x_coords = telemetry['X'].values
-                                        y_coords = telemetry['Y'].values
-                                        
-                                        params = self.track_scale_params
-                                        
-                                        for i in range(len(x_coords)):
-                                            x = TRACK_X + TRACK_WIDTH / 2 + (x_coords[i] - params['x_min'] - params['x_range'] / 2) * params['scale']
-                                            y = TRACK_Y + TRACK_HEIGHT / 2 + (y_coords[i] - params['y_min'] - params['y_range'] / 2) * params['scale']
-                                            lap_positions.append((x, y))
-                                        
-                                        car.position_data.append(lap_positions)
-                                    else:
-                                        car.position_data.append([])
-                                except:
-                                    car.position_data.append([])
+                            # Handle formation lap (NaT time) - use estimated time
+                            if lap_time is None or str(lap_time) in ['NaT', 'nan']:
+                                # Use average lap time or default for formation lap
+                                estimated_time = timedelta(seconds=100 + idx * 0.5)
+                                car.lap_data.append(estimated_time)
                             else:
-                                base_time = 85 + idx * 1.5
-                                car.lap_data.append(timedelta(seconds=base_time))
-                                car.position_data.append([])
+                                car.lap_data.append(lap_time)
+                            
+                            compound = lap.get('Compound', None)
+                            if compound and str(compound) != 'nan':
+                                car.tyre_compounds.append(str(compound))
+                            else:
                                 car.tyre_compounds.append('UNKNOWN')
+                            
+                            try:
+                                telemetry = lap.get_telemetry()
+                                if telemetry is not None and 'X' in telemetry and 'Y' in telemetry and self.track_scale_params:
+                                    lap_positions = []
+                                    x_coords = telemetry['X'].values
+                                    y_coords = telemetry['Y'].values
+                                    
+                                    params = self.track_scale_params
+                                    
+                                    for i in range(len(x_coords)):
+                                        x = TRACK_X + TRACK_WIDTH / 2 + (x_coords[i] - params['x_min'] - params['x_range'] / 2) * params['scale']
+                                        y = TRACK_Y + TRACK_HEIGHT / 2 + (y_coords[i] - params['y_min'] - params['y_range'] / 2) * params['scale']
+                                        lap_positions.append((x, y))
+                                    
+                                    car.position_data.append(lap_positions)
+                                else:
+                                    car.position_data.append([])
+                            except:
+                                car.position_data.append([])
                         
                         print(f"✓ Loaded {len(car.lap_data)} laps for {driver_abbr}")
                     else:
@@ -278,27 +281,45 @@ class RaceAnimation(arcade.Window):
                 dy = end_y - start_y
                 length = math.sqrt(dx*dx + dy*dy)
                 if length > 0:
-                    perp_x = -dy / length * 30 * self.zoom_level
-                    perp_y = dx / length * 30 * self.zoom_level
+                    perp_x = -dy / length * 40 * self.zoom_level
+                    perp_y = dx / length * 40 * self.zoom_level
                     
-                    arcade.draw_line(
-                        start_x - perp_x, start_y - perp_y,
-                        start_x + perp_x, start_y + perp_y,
-                        arcade.color.RED, 8 * self.zoom_level
-                    )
+                    # Draw checkered flag pattern
+                    square_size = 8 * self.zoom_level
+                    rows = 5
+                    cols = 2
                     
-                    for i in range(5):
-                        offset = (i - 2) * 10 * self.zoom_level
-                        rect_width = 8 * self.zoom_level
-                        rect_height = 15 * self.zoom_level
-                        center_rect_x = start_x + perp_x * 0.3 + (perp_x / abs(perp_x) if perp_x != 0 else 1) * offset
-                        center_rect_y = start_y + perp_y * 0.3 + (perp_y / abs(perp_y) if perp_y != 0 else 1) * offset
-                        arcade.draw_lbwh_rectangle_filled(
-                            center_rect_x - rect_width / 2,
-                            center_rect_y - rect_height / 2,
-                            rect_width, rect_height,
-                            arcade.color.WHITE if i % 2 == 0 else arcade.color.BLACK
-                        )
+                    # Calculate direction along the perpendicular
+                    norm_perp_x = perp_x / (40 * self.zoom_level)
+                    norm_perp_y = perp_y / (40 * self.zoom_level)
+                    
+                    for row in range(rows):
+                        for col in range(cols):
+                            # Alternate colors in checkered pattern
+                            is_white = (row + col) % 2 == 0
+                            color = arcade.color.WHITE if is_white else arcade.color.BLACK
+                            
+                            # Calculate position for this square
+                            offset_perp = (row - rows/2) * square_size
+                            offset_parallel = (col - cols/2) * square_size
+                            
+                            # Position along perpendicular line
+                            center_x = start_x + norm_perp_x * offset_perp
+                            center_y = start_y + norm_perp_y * offset_perp
+                            
+                            # Offset parallel to perpendicular (slight depth)
+                            parallel_x = -norm_perp_y * offset_parallel
+                            parallel_y = norm_perp_x * offset_parallel
+                            
+                            center_x += parallel_x
+                            center_y += parallel_y
+                            
+                            arcade.draw_lbwh_rectangle_filled(
+                                center_x - square_size / 2,
+                                center_y - square_size / 2,
+                                square_size, square_size,
+                                color
+                            )
         else:
             track_center_x = TRACK_X + TRACK_WIDTH / 2
             track_center_y = TRACK_Y + TRACK_HEIGHT / 2
@@ -418,16 +439,18 @@ class RaceAnimation(arcade.Window):
                 tyre_color = tyre_colors.get(compound, arcade.color.GRAY)
                 tyre_text = compound[0] if compound != 'UNKNOWN' else '?'
                 
-                arcade.draw_circle_filled(
+                arcade.draw_circle_outline(
                     list_x + 145, y_pos + 5,
-                    6,
-                    tyre_color
+                    11,
+                    tyre_color,
+                    3,
+                    num_segments=32
                 )
                 arcade.draw_text(
                     tyre_text,
-                    list_x + 141, y_pos + 1,
-                    arcade.color.BLACK,
-                    8,
+                    list_x + 140, y_pos + 1,
+                    tyre_color,
+                    10,
                     bold=True
                 )
         
@@ -517,12 +540,12 @@ class RaceAnimation(arcade.Window):
             self.zoom_level = max(0.5, self.zoom_level - 0.1)
 
 
-def animate_race(year, race_round):
+def animate_race(year, race_round, race_format='conventional'):
     """Create and run race animation"""
     from race.detail import get_race_details
     
     print(f"\n🏎️  Loading race data for {year} Round {race_round}...")
-    race_data = get_race_details(year, race_round)
+    race_data = get_race_details(year, race_round, race_format)
     
     if 'error' in race_data:
         print(f"❌ Error loading race: {race_data['error']}")
@@ -534,6 +557,7 @@ def animate_race(year, race_round):
     
     race_data['year'] = year
     race_data['round'] = race_round
+    race_data['format'] = race_format
     
     print("✅ Race data loaded successfully!")
     print(f"🏁 {race_data['event_info']['event_name']}")

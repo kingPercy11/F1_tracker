@@ -34,8 +34,36 @@ def display_race_menu(year):
     print(f"F1 RACE TRACKER - {year} Season")
     print("="*60)
     
+    # Ask if user wants sprint races or regular races
+    print("\nSelect race type:")
+    print("1. Regular Races")
+    print("2. Sprint Races")
+    print("0. Back to year selection")
+    
+    while True:
+        try:
+            race_type_choice = int(input("\nEnter your choice (0-2): "))
+            if race_type_choice == 0:
+                return None
+            elif race_type_choice == 1:
+                include_sprints = False
+                break
+            elif race_type_choice == 2:
+                include_sprints = True
+                break
+            else:
+                print("Invalid choice. Please enter 0, 1, or 2.")
+        except ValueError:
+            print("Invalid input. Please enter a number.")
+        except KeyboardInterrupt:
+            print("\n\nExiting...")
+            return None
+    
     # Get all races for selected year
-    races = get_current_season_races(year)
+    if include_sprints:
+        races = get_current_season_races(year, sprint_only=True)
+    else:
+        races = get_current_season_races(year, include_sprints=False)
     
     if 'error' in races:
         print(f"Error: {races['error']}")
@@ -71,7 +99,7 @@ def display_race_details(race_info, year):
     print(f"RACE DETAILS")
     print("="*60)
     
-    details = get_race_details(year, race_info['round'])
+    details = get_race_details(year, race_info['round'], race_info.get('format', 'conventional'))
     
     if 'error' in details:
         print(f"\nError: {details['error']}")
@@ -134,7 +162,7 @@ def main():
             if animate_choice == 'y':
                 try:
                     from race.animation import animate_race
-                    animate_race(year, selected_race['round'])
+                    animate_race(year, selected_race['round'], selected_race.get('format', 'conventional'))
                 except ImportError:
                     print("⚠️  Arcade library not installed. Install with: pip install arcade")
                 except Exception as e:

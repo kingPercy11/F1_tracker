@@ -14,7 +14,7 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 # Enable cache globally
 f1.Cache.enable_cache(str(CACHE_DIR))
 
-def get_race_details(year, race_round):
+def get_race_details(year, race_round, race_format='conventional'):
     """
     Get race details for a specific race round.
     
@@ -24,6 +24,8 @@ def get_race_details(year, race_round):
         The year of the F1 season
     race_round : int or str
         The race round number or race name
+    race_format : str, optional
+        The race format ('sprint', 'conventional', etc.). Defaults to 'conventional'.
         
     Returns:
     --------
@@ -78,7 +80,8 @@ def get_race_details(year, race_round):
                 else:
                     print(f"⚠ Downloading data for {event['EventName']}...")
                 
-                race_session = f1.get_session(year, event['RoundNumber'], 'R')
+                session_type = 'S' if 'sprint' in race_format.lower() else 'R'
+                race_session = f1.get_session(year, event['RoundNumber'], session_type)
                 race_session.load()
                 
                 # Get race results
@@ -127,7 +130,7 @@ def get_race_details(year, race_round):
         }
 
 
-def get_current_season_races(year=None):
+def get_current_season_races(year=None, include_sprints=True, sprint_only=False):
     """
     Get all races for a specific season.
     
@@ -135,6 +138,10 @@ def get_current_season_races(year=None):
     -----------
     year : int, optional
         The year of the F1 season. Defaults to current year.
+    include_sprints : bool, optional
+        Whether to include sprint race events. Defaults to True.
+    sprint_only : bool, optional
+        Whether to show only sprint races. Defaults to False.
         
     Returns:
     --------
@@ -148,7 +155,19 @@ def get_current_season_races(year=None):
         races = []
         
         for idx, event in schedule.iterrows():
-            # Include all events
+            # Filter based on sprint preferences
+            event_format = str(event['EventFormat']).lower()
+            is_sprint = 'sprint' in event_format
+            
+            if sprint_only:
+                # Only include sprint races
+                if not is_sprint:
+                    continue
+            elif not include_sprints:
+                # Exclude sprint races
+                if is_sprint:
+                    continue
+            
             races.append({
                 'round': event['RoundNumber'],
                 'event_name': event['EventName'],
