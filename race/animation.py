@@ -271,7 +271,26 @@ class RaceAnimation(arcade.Window):
                 scaled_y = center_y + (y - center_y) * self.zoom_level
                 scaled_points.append((scaled_x, scaled_y))
             scaled_points.append(scaled_points[0])
-            arcade.draw_line_strip(scaled_points, arcade.color.WHITE, 5)
+            
+            # Divide track into 3 sectors with different colors
+            total_points = len(scaled_points) - 1  # Exclude the duplicate last point
+            sector_1_end = total_points // 3
+            sector_2_end = (total_points * 2) // 3
+            
+            # Sector 1 - Purple
+            sector_1_points = scaled_points[0:sector_1_end + 1]
+            if len(sector_1_points) > 1:
+                arcade.draw_line_strip(sector_1_points, arcade.color.PURPLE, 5)
+            
+            # Sector 2 - Green
+            sector_2_points = scaled_points[sector_1_end:sector_2_end + 1]
+            if len(sector_2_points) > 1:
+                arcade.draw_line_strip(sector_2_points, arcade.color.GREEN, 5)
+            
+            # Sector 3 - Yellow
+            sector_3_points = scaled_points[sector_2_end:]
+            if len(sector_3_points) > 1:
+                arcade.draw_line_strip(sector_3_points, arcade.color.YELLOW, 5)
             
             if len(scaled_points) > 10:
                 start_x, start_y = scaled_points[0]
