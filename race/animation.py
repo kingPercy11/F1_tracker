@@ -79,6 +79,7 @@ class RaceAnimation(arcade.Window):
         self.is_paused = False
         self.speed_multiplier = 1
         self.track_map = []
+        self.drs_zones = []
         self.zoom_level = 1.0
         self.camera_x = 0
         self.camera_y = 0
@@ -156,6 +157,25 @@ class RaceAnimation(arcade.Window):
                                     x = TRACK_X + TRACK_WIDTH / 2 + (x_coords[i] - x_min - x_range / 2) * scale
                                     y = TRACK_Y + TRACK_HEIGHT / 2 + (y_coords[i] - y_min - y_range / 2) * scale
                                     self.track_map.append((x, y))
+                                
+                                # Extract DRS zones
+                                if 'DRS' in telemetry.columns:
+                                    drs_active = telemetry['DRS'] > 0
+                                    in_zone = False
+                                    zone_start = 0
+                                    
+                                    for i in range(len(drs_active)):
+                                        if drs_active.iloc[i] and not in_zone:
+                                            zone_start = i
+                                            in_zone = True
+                                        elif not drs_active.iloc[i] and in_zone:
+                                            self.drs_zones.append((zone_start, i - 1))
+                                            in_zone = False
+                                    
+                                    if in_zone:
+                                        self.drs_zones.append((zone_start, len(drs_active) - 1))
+                                    
+                                    print(f"✓ Found {len(self.drs_zones)} DRS zone(s)")
                                 
                                 print(f"✓ Track map loaded: {len(self.track_map)} points")
                 except Exception as e:
@@ -291,6 +311,48 @@ class RaceAnimation(arcade.Window):
             sector_3_points = scaled_points[sector_2_end:]
             if len(sector_3_points) > 1:
                 arcade.draw_line_strip(sector_3_points, arcade.color.YELLOW, 5)
+            
+            # Draw DRS zones with cyan outline
+            if self.drs_zones:
+                for zone_start, zone_end in self.drs_zones:
+                    # Ensure indices are within bounds
+                    zone_start = max(0, min(zone_start, len(scaled_points) - 1))
+                    zone_end = max(0, min(zone_end, len(scaled_points) - 1))
+                    
+                    if zone_start < zone_end:
+                        drs_points = scaled_points[zone_start:zone_end + 1]
+                        if len(drs_points) > 1:
+                            # Draw two parallel cyan lines to create outline effect
+                            offset = 4 * self.zoom_level
+                            
+                            # Calculate perpendicular offsets for each point
+                            inner_points = []
+                            outer_points = []
+                            
+                            for i in range(len(drs_points) - 1):
+                                x1, y1 = drs_points[i]
+                                x2, y2 = drs_points[i + 1]
+                                
+                                dx = x2 - x1
+                                dy = y2 - y1
+                                length = math.sqrt(dx*dx + dy*dy)
+                                
+                                if length > 0:
+                                    perp_x = -dy / length * offset
+                                    perp_y = dx / length * offset
+                                    
+                                    inner_points.append((x1 + perp_x, y1 + perp_y))
+                                    outer_points.append((x1 - perp_x, y1 - perp_y))
+                            
+                            # Add last point
+                            if len(drs_points) > 1 and length > 0:
+                                x, y = drs_points[-1]
+                                inner_points.append((x + perp_x, y + perp_y))
+                                outer_points.append((x - perp_x, y - perp_y))
+                            
+                            if len(inner_points) > 1:
+                                arcade.draw_line_strip(inner_points, arcade.color.CYAN, 2)
+                                arcade.draw_line_strip(outer_points, arcade.color.CYAN, 2)
             
             if len(scaled_points) > 10:
                 start_x, start_y = scaled_points[0]
@@ -480,8 +542,44 @@ class RaceAnimation(arcade.Window):
             12
         )
         
+        # Track Legend (left side)
+        track_legend_x = 10
+        track_legend_y = SCREEN_HEIGHT - 100
+        
+        arcade.draw_text(
+            "Track",
+            track_legend_x, track_legend_y,
+            arcade.color.YELLOW,
+            10,
+            bold=True
+        )
+        
+        track_legend = [
+            ("S1", arcade.color.PURPLE),
+            ("S2", arcade.color.GREEN),
+            ("S3", arcade.color.YELLOW),
+            ("DRS", arcade.color.CYAN)
+        ]
+        
+        y_offset = track_legend_y - 15
+        for label, color in track_legend:
+            arcade.draw_line(
+                track_legend_x, y_offset,
+                track_legend_x + 12, y_offset,
+                color, 2
+            )
+            arcade.draw_text(
+                label,
+                track_legend_x + 15, y_offset - 4,
+                arcade.color.WHITE,
+                8
+            )
+            y_offset -= 14
+        
+        # Team Colors (right side, moved down to avoid overlap with position table)
         legend_x = SCREEN_WIDTH - 200
-        legend_y = 240
+        legend_y = 200
+        
         arcade.draw_text(
             "Team Colors",
             legend_x, legend_y,
