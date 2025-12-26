@@ -35,24 +35,28 @@ def display_race_menu(year):
     print("="*60)
     
     # Ask if user wants sprint races or regular races
-    print("\nSelect race type:")
-    print("1. Regular Races")
+    print("\nSelect session type:")
+    print("1. Races")
     print("2. Sprint Races")
+    print("3. Qualifying")
     print("0. Back to year selection")
     
     while True:
         try:
-            race_type_choice = int(input("\nEnter your choice (0-2): "))
+            race_type_choice = int(input("\nEnter your choice (0-3): "))
             if race_type_choice == 0:
                 return None
             elif race_type_choice == 1:
-                include_sprints = False
+                session_type = 'race'
                 break
             elif race_type_choice == 2:
-                include_sprints = True
+                session_type = 'sprint'
+                break
+            elif race_type_choice == 3:
+                session_type = 'qualifying'
                 break
             else:
-                print("Invalid choice. Please enter 0, 1, or 2.")
+                print("Invalid choice. Please enter 0, 1, 2, or 3.")
         except ValueError:
             print("Invalid input. Please enter a number.")
         except KeyboardInterrupt:
@@ -60,10 +64,13 @@ def display_race_menu(year):
             return None
     
     # Get all races for selected year
-    if include_sprints:
+    if session_type == 'sprint':
         races = get_current_season_races(year, sprint_only=True)
+    elif session_type == 'qualifying':
+        races = get_current_season_races(year, include_sprints=True, exclude_testing=True)
     else:
-        races = get_current_season_races(year, include_sprints=False)
+        # For main races, get all events excluding testing
+        races = get_current_season_races(year, include_sprints=True, exclude_testing=True)
     
     if 'error' in races:
         print(f"Error: {races['error']}")
@@ -82,7 +89,9 @@ def display_race_menu(year):
         try:
             choice = int(input(f"\nEnter your choice (0-{len(races)}): "))
             if 1 <= choice <= len(races):
-                return races[choice - 1]
+                selected_race = races[choice - 1]
+                selected_race['session_type'] = session_type
+                return selected_race
             elif choice == 0:
                 return None
             else:
@@ -154,15 +163,18 @@ def main():
             if selected_race is None:
                 break
             
+            # Track session type from menu selection
+            session_type = selected_race.get('session_type', 'conventional')
+            
             display_race_details(selected_race, year)
             
             # Ask if user wants to animate the race
             print("\n")
-            animate_choice = input("Animate this race? (y/n): ").lower()
+            animate_choice = input("Animate this session? (y/n): ").lower()
             if animate_choice == 'y':
                 try:
                     from race.animation import animate_race
-                    animate_race(year, selected_race['round'], selected_race.get('format', 'conventional'))
+                    animate_race(year, selected_race['round'], session_type)
                 except ImportError:
                     print("⚠️  Arcade library not installed. Install with: pip install arcade")
                 except Exception as e:

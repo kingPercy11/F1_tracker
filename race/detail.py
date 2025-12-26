@@ -14,7 +14,7 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 # Enable cache globally
 f1.Cache.enable_cache(str(CACHE_DIR))
 
-def get_race_details(year, race_round, race_format='conventional'):
+def get_race_details(year, race_round, session_type='race'):
     """
     Get race details for a specific race round.
     
@@ -24,8 +24,8 @@ def get_race_details(year, race_round, race_format='conventional'):
         The year of the F1 season
     race_round : int or str
         The race round number or race name
-    race_format : str, optional
-        The race format ('sprint', 'conventional', etc.). Defaults to 'conventional'.
+    session_type : str, optional
+        The session type ('race', 'sprint', 'qualifying'). Defaults to 'race'.
         
     Returns:
     --------
@@ -80,8 +80,15 @@ def get_race_details(year, race_round, race_format='conventional'):
                 else:
                     print(f"⚠ Downloading data for {event['EventName']}...")
                 
-                session_type = 'S' if 'sprint' in race_format.lower() else 'R'
-                race_session = f1.get_session(year, event['RoundNumber'], session_type)
+                # Determine session type from parameter
+                if session_type == 'sprint':
+                    session_code = 'S'
+                elif session_type == 'qualifying':
+                    session_code = 'Q'
+                else:
+                    session_code = 'R'
+                    
+                race_session = f1.get_session(year, event['RoundNumber'], session_code)
                 race_session.load()
                 
                 # Get race results
@@ -130,7 +137,7 @@ def get_race_details(year, race_round, race_format='conventional'):
         }
 
 
-def get_current_season_races(year=None, include_sprints=True, sprint_only=False):
+def get_current_season_races(year=None, include_sprints=True, sprint_only=False, exclude_testing=False):
     """
     Get all races for a specific season.
     
@@ -142,6 +149,8 @@ def get_current_season_races(year=None, include_sprints=True, sprint_only=False)
         Whether to include sprint race events. Defaults to True.
     sprint_only : bool, optional
         Whether to show only sprint races. Defaults to False.
+    exclude_testing : bool, optional
+        Whether to exclude testing events. Defaults to False.
         
     Returns:
     --------
@@ -158,6 +167,11 @@ def get_current_season_races(year=None, include_sprints=True, sprint_only=False)
             # Filter based on sprint preferences
             event_format = str(event['EventFormat']).lower()
             is_sprint = 'sprint' in event_format
+            is_testing = 'testing' in event_format
+            
+            # Exclude testing if requested
+            if exclude_testing and is_testing:
+                continue
             
             if sprint_only:
                 # Only include sprint races

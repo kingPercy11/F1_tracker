@@ -109,15 +109,23 @@ class RaceAnimation(arcade.Window):
         try:
             year = self.race_data.get('year')
             round_num = self.race_data.get('round')
-            race_format = self.race_data.get('format', 'conventional')
+            session_type_param = self.race_data.get('session_type', 'race')
             
             if year and round_num:
                 cache_dir = Path(__file__).parent.parent / 'cache' / str(year)
                 if cache_dir.exists():
                     print(f"✓ Found cache directory for {year}")
                 
-                session_type = 'S' if 'sprint' in race_format.lower() else 'R'
-                session_name = 'Sprint' if 'sprint' in race_format.lower() else 'Race'
+                # Determine session type from parameter
+                if session_type_param == 'sprint':
+                    session_type = 'S'
+                    session_name = 'Sprint'
+                elif session_type_param == 'qualifying':
+                    session_type = 'Q'
+                    session_name = 'Qualifying'
+                else:
+                    session_type = 'R'
+                    session_name = 'Race'
                 print(f"Loading position data for {year} Round {round_num} ({session_name})...")
                 session = f1.get_session(year, round_num, session_type)
                 
@@ -657,24 +665,24 @@ class RaceAnimation(arcade.Window):
             self.zoom_level = max(0.5, self.zoom_level - 0.1)
 
 
-def animate_race(year, race_round, race_format='conventional'):
+def animate_race(year, race_round, session_type='race'):
     """Create and run race animation"""
     from race.detail import get_race_details
     
-    print(f"\n🏎️  Loading race data for {year} Round {race_round}...")
-    race_data = get_race_details(year, race_round, race_format)
+    print(f"\n🏎️  Loading data for {year} Round {race_round}...")
+    race_data = get_race_details(year, race_round, session_type)
     
     if 'error' in race_data:
-        print(f"❌ Error loading race: {race_data['error']}")
+        print(f"❌ Error loading: {race_data['error']}")
         return
     
     if not race_data.get('results'):
-        print("❌ No race results available for animation. Race may not have been completed yet.")
+        print("❌ No results available for animation. Session may not have been completed yet.")
         return
     
     race_data['year'] = year
     race_data['round'] = race_round
-    race_data['format'] = race_format
+    race_data['session_type'] = session_type
     
     print("✅ Race data loaded successfully!")
     print(f"🏁 {race_data['event_info']['event_name']}")
